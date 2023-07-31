@@ -1,0 +1,785 @@
+---
+title: "TP5"
+author: "Mahmoud Alkheja"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r,warning=FALSE,message=FALSE}
+library(fpp2)
+library(fpp3)
+library(tsibble)
+#library(forecast)
+```
+
+# 1. Loading Qcement data set from fpp2 package
+
+```{r,warning=FALSE,message=FALSE}
+# Load the qcement dataset
+data(qcement)
+?qcement
+
+# Convert the qcement dataset to a tsibble object
+qcement_ts <- as_tsibble(qcement, index = Quarter)
+
+# Print the first few rows of the tsibble object
+head(qcement_ts)
+detach("package:fpp2", unload = TRUE) #deattach fpp2 packqge
+```
+
+The data set is quarterly time series represent the total quarterly production of Portland cement in Australia (in millions of tonnes) from 1956:Q1 to 2014:Q1(233 observations)
+
+# 2. Plot the selected time series and comment the general features you can observe
+
+```{r,warning=FALSE,message=FALSE}
+
+# histogram for the destribution of production 
+gghistogram(qcement_ts$value, 
+            add.normal=TRUE,  # normal density
+            add.kde=TRUE) + # kernel densit
+  xlab("Sales of Cement") + # change x-axis label
+  ylab("Frequency") +          # change y-axis label
+  labs(title = "The distribution of production")
+
+# ploting the production cement time series 
+qcement_ts |>
+  autoplot() + 
+  labs(title = "Quarterly Cement production",
+       subtitle = "Australian Portland",
+       y = "in millios tonnes",
+       x = "Time")
+# Seasonal subseries plots
+qcement_ts |>
+  gg_subseries(value) +
+  labs(
+    y = "in millios tonnes",
+    x = "Time",
+    title = "Quarterly Cement production " 
+  )
+```
+
+The histogram shows that the production has a normal distribution .
+
+The plot of quarterly cement production shows :
+
+-   The quarterly cement production has been increasing consistently over time indicating a strong upward trend., a trend exist when there is a long-term increase or decrease in the data.
+
+-   The presence of seasonality behavior suggests that there are regular patterns of fluctuation in the data that repeat at fixed intervals, such as every quarter in our case. We can see that there is slight change in seasonality behavior, it could be due to change in the demand for cement during different seasons, or that there has been a change in the production process..etc. the Seasonality appears to be multiplicative since its amplitude increases with time .
+
+-   There is no evidence of any cyclic behavior in the data. A cycle occurs when the data display rises and falls that are not of a fixed frequency. These fluctuations are usually associated to economic conditions, and are often related to the "business cycle"
+
+-   The seasonal patterns plot reveals a lower production during the first quarter compared to the other quarters. This could be attributed to the summer and holidays, leading to a decline in demand.
+
+# 3. Apply both the decomposition methods seen in class and plot the results. Comment the results of these two procedures.
+
+```{r,warning=FALSE,message=FALSE}
+# Additive decomposition
+qcement_ts |> 
+  model(
+    classical_decomposition(
+      value, type = "additive")
+  ) -> decomp_add
+
+additive <- components(decomp_add)   #  decomposition table
+additive
+
+additive |>        #   additive decomposition graphs
+  autoplot() 
+
+```
+
+```{r,warning=FALSE,message=FALSE}
+# Multiplicative decomposition
+qcement_ts |> 
+  model(
+    classical_decomposition(
+    value, type = "multiplicative")
+  ) -> decomp_mult
+
+multiplicative <- components(decomp_mult)  #  decomposition table
+multiplicative
+
+
+multiplicative |>           #   Multiplicative decomposition graphs
+  autoplot()
+
+
+```
+
+Both of the decomposition methods applied here have a unique feature where the first and last two values for trend and random components are missing. This is because the trend is obtained by applying a "2×4-MA"(moving average of order 2) method, which requires a minimum of two periods to provide an accurate estimate.
+
+Despite the missing values, we can observe that the trend is similar in both decomposition methods, showing several drops over time. However, there are differences in the random component between the two methods. In the additive decomposition, the random component exhibits some structure, while in the multiplicative decomposition, it appears to be more random .
+
+```{r,warning=FALSE,message=FALSE}
+# STL decomposition
+qcement_ts |> 
+  model(
+    STL(value ~ trend(window = 5) + season(window = 5), 
+        robust = TRUE)
+  ) -> decomp_stl
+```
+
+The trend window and season window are parameters that determine the rate of change of the trend-cycle and seasonal components. Smaller values for these parameters allow for more rapid changes in the trend-cycle and seasonal components. It is important to note that both the trend and season window should be odd numbers. The trend window refers to the number of consecutive observations used to estimate the trend-cycle, while the season window refers to the number of consecutive years used to estimate each value in the seasonal component.
+
+-   5 consecutive values for trend because we have quarterly data 4 season in a year +1 because both trend and seasonal windows should be odd numbers
+
+-   5 consecutive periods for season based on year , because the seasonality behavior repeats every 4 season .
+
+```{r,warning=FALSE,message=FALSE}
+stl <- components(decomp_stl)       #  decomposition table
+stl
+
+stl |> 
+  autoplot()
+```
+
+There is a difference in the seasonality behavior between classical and STL decomposition methods.
+
+-   One reason is that the two methods use different techniques . Classical decomposition methods usually use moving averages, while STL uses local regression (loess) and decomposes the data into seasonal, trend-cycle, and remainder components
+
+-   Another reason could be due to the presence of outliers or irregular patterns in the data. The classical method assumes that the seasonal behavior is fixed and constant over time, In contrast, the STL method can adjust to irregular patterns and outliers in the data, which may result in a different seasonality behavior.
+
+```{r,warning=FALSE,message=FALSE}
+# STL on Log transformed data
+qcement_ts <- qcement_ts |> 
+  mutate(value_log = log(value))  # add variable with log transformation
+
+qcement_ts |> 
+  autoplot(value_log) + 
+  labs(title = "Log Quarterly Cement production",
+       subtitle = "Australian Portland",
+       y = "Log",
+       x = "Time")
+
+qcement_ts |> 
+  model(
+    STL(value_log ~ trend(window = 5) +  season (window = 5))
+  ) -> stl_log
+
+components(stl_log) -> stl_comp_mult
+
+
+components(stl_log) |> 
+  autoplot()
+  
+
+
+```
+
+When analyzing time series data with both trend and seasonality, it is often useful to apply STL on log transformed data. This is because the log transformation can help to stabilize the variance of the data, making it easier to identify and isolate the trend and seasonal components as we see that the remainder is more random comparing to STL.
+
+```{r,warning=FALSE,message=FALSE}
+# trend from additive decomposition 
+components(decomp_add) |> 
+  na.omit() |> 
+  select(index, trend) -> addit_trend_coef
+
+# trend from multiplicative decomposition 
+components(decomp_mult) |> 
+  na.omit() |> 
+  select(index, trend) -> mult_trend_coef
+
+# trend from stl decomposition
+components(decomp_stl) |> 
+  na.omit() |> 
+  select(index, trend) -> stl_trend_coef
+
+# trend from stl decomposition on log transformed data
+components(stl_log) |> 
+  na.omit() |> 
+  select(index, trend) -> stl_log_trend_coef
+row_number(stl_log_trend_coef)
+bind_cols(addit_trend_coef[,2], 
+          mult_trend_coef[,2], 
+          stl_trend_coef[5:233, 2], 
+          stl_log_trend_coef[5:233, 2])
+```
+
+```{r,message=FALSE,warning=FALSE}
+# Plot data together with the trend
+# 
+qcement_ts |> 
+  autoplot(value, color = "grey") + 
+  autolayer(components(decomp_mult), trend, color = "green") +
+  autolayer(components(decomp_stl), trend, color = "red") +
+  labs(x ="Time", y="in millios tonnes",title = "Extracted Trends",subtitle = "Multiplicative and STL decomposition")
+
+
+
+
+
+qcement_ts |> 
+  autoplot(value, color = "grey") + 
+  autolayer(components(decomp_add), trend, color = "blue") +
+  autolayer(components(decomp_stl), trend, color = "red") +
+  labs(x ="Time", y="in millios tonnes",title = "Extracted Trends", subtitle = "Additive and STL decomposition")
+
+qcement_ts |> 
+  autoplot(value_log, color = "grey") + 
+  autolayer(components(stl_log), trend, color = "black") +
+  labs(x ="Time", y="in millios tonnes",title = "Extracted Trend, STL on log transformed data")
+
+```
+
+The trend component in both additive and multiplicative decomposition methods is similar in this scenario, as both methods utilize the moving average approach. However, both methods have a shortage of data at the tails compared to the STL method.
+
+The trend component in STL decomposition is different because it is estimated using local regression (loess). This technique allows for the estimation of the trend without the use of moving averages and can help to capture more qualified changes in the trend over time.
+
+When using log-transformed data in the STL method, the resulting trend component can capture the underlying patterns in the time series data more effectively. This is because the log transformation can help to stabilize the variance of the data, making it easier to identify and isolate the trend and seasonal components.
+
+```{r,warning=FALSE,message=FALSE}
+# Extract seasonal component
+# Additive decomposition
+ components(decomp_add) |> 
+  na.omit() |> 
+  select(index, seasonal) -> addit_season_coef
+
+# Multiplicative decomposition
+ components(decomp_mult) |> 
+  na.omit() |> 
+  select(index, seasonal) -> mult_season_coef
+ 
+# stl decomposition
+ components(decomp_stl) |> 
+  na.omit() |> 
+  select(index, season_year) -> stl_season_coef
+ 
+# stl decomposition on log transformed data
+  components(stl_log) |> 
+  na.omit() |> 
+  select(index, season_year) -> stl_log_season_coef
+
+ 
+ season <- bind_cols(addit_season_coef, 
+                 mult_season_coef[,2],
+                stl_season_coef[5:233, 2],
+                 stl_log_season_coef[5:233, 2])
+
+ season
+```
+
+The values in the seasonal component column for each decomposition method are different, reflecting the differences in the methods used to extract the seasonal component.The 'seasonal2' and 'seasonal\...3' columns have similar values repeated over each year , suggesting that the seasonal patterns may be consistent across different years in classical decomposition. which is not the case for STL decomposition where seasonal components for same season differ.
+
+# 4. Explore different models of Exponential Smoothing (ETS), comment your results and select the model that you consider the best in fitting the series. Argument your model's choice and further justify it by performing a residuals analysis and validating the model's assumptions using the required statistical testing procedures.
+
+```{r,warning=FALSE,message=FALSE}
+# fitting different ETS methods 
+fit <- qcement_ts |> 
+  model(
+    H_W_additive = ETS(value ~ error("A") + trend("A") +
+                         season("A") ),
+    H_W_multiplicative = ETS(value ~ error("M") + trend("A") +
+                               season("M") ),
+    H_W_additive_damped = ETS(value ~ error("A") + trend("Ad") +
+                             season("A")),
+    H_W_multiplicative_damped = ETS(value~ error("M") + trend("Ad") +
+                                   season("M"))
+    )
+
+```
+
+The reason for choosing Holt-Winters' method is the data exhibit trend and seasonal components .
+
+```{r,warning=FALSE,message=FALSE}
+components(fit[,1]) |>    # additive 
+  autoplot()
+components(fit[,2]) |>   #  multiplicative 
+  autoplot() 
+components(fit[,3]) |>    # additive damped
+  autoplot()
+components(fit[,4]) |>   #  multiplicative damped 
+  autoplot() 
+components(fit) |>   #  multiplicative damped 
+  autoplot() 
+
+```
+
+In every HW method applied we can see 5 different decomposition :
+
+1.  The value remains constant in every method as it represents the actual measured value.
+
+2.  The level or trend indicates an increasing pattern due to high demand, and there are some damps in all methods applied with slightly different because of the different approaches used (additive or multiplicative smoothing).
+
+3.  The slope reflects the fluctuation or changing the direction in the trend, and multiplicative methods can better capture this change compared to other methods.
+
+4.  Both multiplicative and multiplicative damped methods exhibit a nice seasonal pattern.
+
+5.  The remainder represents the difference between the observed values and the fitted values, and the multiplicative methods exhibit more randomness in the residuals compared to the additive method.
+
+```{r}
+report(fit[,1])         # Holt-Winters additive report
+report(fit[,2])         # Holt-Winters multiplicative report
+report(fit[,3])         # Holt-Winters additive damped report
+report(fit[,4])         # Holt-Winters multiplicative damped report
+
+accuracy(fit)            #accuracy measures for all Holt-Winters method applied 
+```
+
+-   Alpha is the smoothing parameter. If α is large more weight is given to the more recent observations.
+
+-   Beta is the smoothing parameter used to control the smoothing of the slope (or trend).If beta is close to 0, then the slope will be relatively smooth and will change slowly over time.
+
+-   Gamma is the smoothing parameter that controls the level of smoothing applied to the seasonal component. A low value of gamma indicates a more stable seasonal pattern.
+
+-   In damped methods we have phi this is a damping parameter
+
+-   sigma\^2 is the estimation of the error method which is lowest in multiplicative (0.0022)
+
+-   Comparing the AICc values (measure of the goodness of fit of the model) we will chose the lowest one . 7.59 for multiplicative followed by 18.77 for multiplicative damped
+
+-   Comparing the RMSE we have the lowest for multiplicative 0.078 followed by 0.079 for multiplicative damped
+
+Thus the best model fitting the series is Holt-Winters multiplicative .
+
+#### Residuals analysis
+
+```{r,warning=FALSE,message=FALSE}
+
+# Holt-Winters additive
+# extract residuals
+residuals_addi <- as.data.frame(components(fit[,1])$remainder)
+colnames(residuals_addi)[1]<-"residual"
+# histogram of residuals
+ggplot(data = residuals_addi, aes(x = residual)) +
+  geom_histogram(aes(y = ..density..), color = "black", binwidth = 0.02, fill = "lightblue") +
+  geom_density(color = "red", fill = "lightblue", alpha = 0.5) +
+  stat_function(fun = dnorm, args = list(mean = mean(residuals_addi$residual), sd = sd(residuals_addi$residual)), 
+                color = "black", linetype = "dashed") +
+  labs(x = "Residuals", y = "Density", title = "Histogram and Density Plot of Residuals H.W (A,A,A)")
+
+# Plot normal QQ plot of residuals
+ggplot(residuals_addi, aes(sample = residual)) + 
+  geom_qq() +
+  stat_qq_line(color = "red") +
+  labs(x = "Theoretical Quantiles", y = "Sample Quantlies",title = "Normal QQ Plot of Residuals H.W (A,A,A)") 
+
+# Shapiro-Wilk test of normality
+shapiro.test(components(fit[,1])$remainder)
+
+# plot the residuals
+plot(residuals_addi$residual, main="Residuals of H.W (A,A,A)", ylab="Residuals", xlab="Time")
+plot.ts(residuals_addi$residual, main="Residuals of H.W (A,A,A)", ylab="Residuals", xlab="Time")
+
+# t-test for the average
+t.test(residuals_addi$residual)
+```
+
+```{r,warning=FALSE,message=FALSE}
+# Holt-Winters multiplicative
+# extract residuals
+residuals_multi <- as.data.frame(components(fit[,2])$remainder)
+colnames(residuals_multi)[1]<-"residual"
+# histogram of residuals
+ggplot(data = residuals_multi, aes(x = residual)) +
+  geom_histogram(aes(y = ..density..), binwidth = 0.02, color = "black", fill = "lightblue") +
+  geom_density(color = "red", fill = "lightblue", alpha = 0.7) +
+  theme_classic() +
+  labs(title = "Histogram of Residuals H.W(M,A,M)", x = "Residuals", y = "Frequency")
+
+
+# Plot normal QQ plot of residuals
+ggplot(residuals_multi, aes(sample = residual)) + 
+  geom_qq() +
+  stat_qq_line(color = "red") +
+  labs(x = "Theoretical Quantiles", y = "Sample Quantlies",title = "Normal QQ Plot of Residuals H.W(M,A,M)") 
+
+# Shapiro-Wilk test of normality
+shapiro.test(components(fit[,2])$remainder)
+
+# plot the residuals
+plot(residuals_multi$residual, main="Residuals of H.W(M,A,M)", ylab="Residuals", xlab="Time")
+plot.ts(residuals_multi$residual, main="Residuals of H.W(M,A,M)", ylab="Residuals", xlab="Time")
+
+# t-test for the average
+t.test(residuals_multi$residual)
+
+```
+
+```{r,warning=FALSE,message=FALSE}
+# Holt-Winters additive damped
+# extract residuals
+residuals_addi_damped <- as.data.frame(components(fit[,3])$remainder)
+colnames(residuals_addi_damped)[1]<-"residual"
+# histogram of residuals
+ggplot(data = residuals_addi_damped, aes(x = residual)) +
+  geom_histogram(aes(y = ..density..), binwidth = 0.02, color = "black", fill = "lightblue") +
+  geom_density(color = "red", fill = "lightblue", alpha = 0.7) +
+  labs(x = "Residuals", y = "Frequency", title = "Histogram of Residuals H.W(A,Ad,A)") +
+  theme_classic()
+
+# Plot normal QQ plot of residuals
+ggplot(residuals_addi_damped, aes(sample = residual)) + 
+  geom_qq() +
+  stat_qq_line(color = "red") +
+  labs(x = "Theoretical Quantiles", y = "Sample Quantlies",title = "Normal QQ Plot of Residuals H.W(A,Ad,A)") 
+
+# Shapiro-Wilk test of normality
+shapiro.test(components(fit[,3])$remainder)
+
+# plot the residuals
+plot(residuals_addi_damped$residual, main="Residuals of H.W(A,Ad,A)", ylab="Residuals", xlab="Time")
+plot.ts(residuals_addi_damped$residual, main="Residuals of H.W(A,Ad,A)", ylab="Residuals", xlab="Time")
+
+# t-test for the average
+t.test(residuals_addi_damped$residual)
+```
+
+```{r,warning=FALSE,message=FALSE}
+# Holt-Winters multiplicative damped
+# extract residuals
+residuals_multi_damped <- as.data.frame(components(fit[,4])$remainder)
+colnames(residuals_multi_damped)[1]<-"residual"
+# histogram of residuals
+ggplot(data = residuals_multi_damped, aes(x = residual)) +
+  geom_histogram(aes(y = ..density..), binwidth = 0.02, color = "black", fill = "lightblue") +
+  geom_density(color = "red", fill = "lightblue", alpha = 0.7) +
+  labs(x = "Residuals", y = "Frequency", title = "Histogram of Residuals H.W(M,Ad,M)") +
+  theme_classic()
+
+# Plot normal QQ plot of residuals
+ggplot(residuals_multi_damped, aes(sample = residual)) + 
+  geom_qq() +
+  stat_qq_line(color = "red") +
+  labs(x = "Theoretical Quantiles", y = "Sample Quantlies",title = "Normal QQ Plot of Residuals H.W(M,Ad,M)") 
+
+# Shapiro-Wilk test of normality
+shapiro.test(components(fit[,4])$remainder)
+
+# plot the residuals
+plot(residuals_multi_damped$residual, main="Residuals of H.W(M,Ad,M)", ylab="Residuals", xlab="Time")
+plot.ts(residuals_multi_damped$residual, main="Residuals of H.W(M,Ad,M)", ylab="Residuals", xlab="Time")
+
+# t-test for the average
+t.test(residuals_multi_damped$residual)
+
+```
+
+**Comparing residuals :**
+
+**Both additives methods :**
+
+-   Histogram of residuals shows that the residual in both are not normally distributed
+
+-   in normal QQ plot, the residuals do not follow a straight line
+
+-   For additive p-value is very small, which indicates that the null hypothesis of normality is rejected at a significance level of 0.05. This means that the residuals are not normally distributed. Same result for additive-damped .
+
+-   Residuals around zero .However. they exhibit structure .
+
+-   T-test show that the P-value is 0.6327 for additive therefore the result is not statistically significant and we cannot conclude that the residuals have a significant non-zero mean. On other hand, P-value is 0.04352 for additive_damped we reject the null hypothesis of zero mean .
+
+-   The 95% confidence interval for the mean of the residuals is (-0.013541437 , 0.008248679) .Since the interval contains zero, this further supports the conclusion that the mean of the residuals is not significantly different from zero for additive. While for additive_damped (0.0003274365 , 0.0219971141)
+
+**Both multiplicative methods :**
+
+-   Histogram of residuals shows that the residuals are normally distributed
+
+-   in normal QQ plot, the residuals follows a straight line
+
+-   The null hypothesis for the Shapiro-Wilk test is that the data are normally distributed. The p-value of 0.7955 for multiplicative and 0.8025 multiplicative_damped indicate that we do not have enough evidence to reject the null hypothesis. Therefore, we can assume that the residuals are normally distributed.
+
+-   Residuals around zero . No exhibit structure meaning randomly distributed .
+
+-   The result of the test shows a t-value of 0.42295 and a p-value of 0.6727.Hence, we fail to reject the null hypothesis and conclude that there is no evidence that the mean of the residuals is significantly different from zero.
+
+-   The 95% confidence interval for the mean of the residuals is (-0.004719568, 0.007299746) for multiplicative and (-0.0005819034 , 0.0116444058) for multiplicative_damped .Since the interval contains zero, this further supports the conclusion that the mean of the residuals is not significantly different from zero.
+
+Based on this analysis we can confirm that the multiplicative methods are best for fitting out data . However, the best model fitting the series is Holt-Winters multiplicative(M,A,M) since it has lower RMSE and AICc .
+
+# 5. Compute a h = 10 forecast and prediction intervals for different levels: 80%, 90%, 95% and 99%.
+
+```{r}
+# Forecast 10 steps ahead on the best model Holt-Winters multiplicative
+holt_w_fc <- fit[,2] |> 
+     forecast(h = 10)  
+holt_w_fc
+
+# Prediction interval
+lower <- hilo(holt_w_fc, level = 80)
+lower$`80%`$lower
+hilo(holt_w_fc, level = 90)
+hilo(holt_w_fc, level = 95)
+hilo(holt_w_fc, level = 99)
+
+
+```
+
+```{r}
+# Plot forecast and prediction intervals
+holt_w_fc |> 
+  autoplot(qcement_ts, level = c(80,90,95,99)) + 
+    geom_line(aes(y = .fitted), col="#D55E00",
+            data = augment(fit[,2])) +
+  labs(x ="Time", y="in millios tonnes",title = "Forecasts quarterly cement production") +
+  guides(colour = "none")
+
+
+holt_w_fc |> 
+  autoplot(qcement_ts, level = 80) + 
+  geom_line(aes(y = .fitted), col="#D55E00",
+            data = augment(fit[,2])) +
+  labs(x ="Time", y="in millios tonnes",title = "Forecasts at level 80% for quarterly cement   production") +
+  guides(colour = "none")
+
+holt_w_fc |> 
+  autoplot(qcement_ts, level = 90) + 
+  geom_line(aes(y = .fitted), col="#D55E00",
+            data = augment(fit[,2])) +
+  labs(x ="Time", y="in millios tonnes",title = "Forecasts at level 90 % for quarterly cement   production") +
+  guides(colour = "none")
+
+holt_w_fc |> 
+  autoplot(qcement_ts, level = 95) + 
+  geom_line(aes(y = .fitted), col="#D55E00",
+            data = augment(fit[,2])) +
+  labs(x ="Time", y="in millios tonnes",title = "Forecasts at level 95% for quarterly cement   production") +
+  guides(colour = "none")
+
+holt_w_fc |> 
+  autoplot(qcement_ts, level = 99) + 
+  geom_line(aes(y = .fitted), col="#D55E00",
+            data = augment(fit[,2])) +
+  labs(x ="Time", y="in millios tonnes",title = "Forecasts at level 99% for quarterly cement   production") +
+  guides(colour = "none")
+
+
+
+```
+
+The shaded regions in the plot represent the prediction intervals, and the color intensity reflects the associated probability. As the level increases, the intervals widen due to the rise of uncertainty. The black line represents the actual data, while the orange curve represents the one-step-ahead fitted values.
+
+# 6. Compute a h = 10 forecast and prediction intervals for the same levels of the previous point, this time by using bootstrapping: a) assuming normality of residuals and b) sampling based on your fitted model's residuals.
+
+```{r}
+# Identify α, β, σ, the last l and b 
+
+a <- unlist(report(fit[,2]))
+
+# last l
+
+l.233 <- a$H_W_multiplicative.fit.states.l234       # 2.4727
+
+# last b
+b.233 <- a$H_W_multiplicative.fit.states.b234          # 0.008356
+s.233 <- a$H_W_multiplicative.fit.states.s232
+
+# alpha
+alpha <- a$H_W_multiplicative.fit.par.estimate1   # 0.7505
+
+# beta
+beta <- a$H_W_multiplicative.fit.par.estimate2     # 0.00297 
+
+# gamma
+gamma <- a$H_W_multiplicative.fit.par.estimate3   # 0.0001
+
+# sigma
+sigma <- sqrt(a$H_W_multiplicative.fit.fit.sigma2) # 0.0473
+
+
+
+```
+
+```{r}
+set.seed(123) # set the random seed to have always the same random numbers generation
+
+h.step <- 10 # 10-step ahead
+R <- 500     # 500 replicates
+l.mat <- matrix(nr=h.step, nc=R)
+b.mat <- matrix(nr=h.step, nc=R)
+y <- matrix(nr=h.step, nc=R)
+s <- matrix(nr=h.step, nc=R)
+```
+
+```{r}
+resid <- components(fit[,2])$remainder
+eps <- sample(size=R, x=resid, replace = TRUE)
+y[1,] <- (l.233 + b.233)*s.233*(1 + eps)
+l.mat[1,] <- (l.233 + b.233)*(1 + alpha*eps)
+b.mat[1,] <- b.233+beta*(l.233 + b.233)*eps
+s[1,] <- s.233*(1 + gamma*eps)
+
+```
+
+![](images/Screenshot%202023-04-07%20at%2000.21.47-01.png)
+
+We will use these formulas to calculate the next forecast . While Yt represent the forecast , Lt the level , Bt the slope and St season.
+
+```{r}
+## the loop for the next steps
+
+for (h in 2:10){
+   eps <- sample(size=R, x=resid, replace = TRUE)
+   y[h,] <- (l.mat[h-1,] + b.mat[h-1,])*s[h-1,]*(1 + eps)
+   l.mat[h,] <- (l.mat[h-1,] + b.mat[h-1,])*(1 + alpha*eps)
+   b.mat[h,] <- b.mat[h-1,]+ beta*(l.mat[h-1,] + b.mat[h-1,])*eps
+   s[h,] <- s[h-1,]*(1 + gamma*eps)
+}
+
+# Set up plot with appropriate axis labels and title
+plot(qcement_ts$value, type = "l", xlim = c(0, 250), ylim = c(0.5, 3.5),
+     xlab = "Time", ylab = "Cement Production", main = "Simulated Forecast Scenarios")
+# Add a legend to the plot
+legend("topleft", legend = c("Actual", "Simulated Scenarios"), lty = c(1, 1), 
+       col = c("black", "blue"), bty = "n", cex = 0.8)
+# Add simulated scenarios to the plot using lines
+for (j in c(1:500)) {
+  lines(y[, j] ~ c(234:243), col = "blue", lwd = 0.5)
+}
+```
+
+```{r}
+
+# Calculate prediction intervals for different confidence levels
+pi_80 <- apply(y, 1, quantile, probs=c(0.1, 0.9), na.rm = T)
+pi_90 <- apply(y, 1, quantile, probs=c(0.05, 0.95), na.rm = T)
+pi_95 <- apply(y, 1, quantile, probs=c(0.025, 0.975), na.rm = T)
+pi_99 <- apply(y, 1, quantile, probs=c(0.005, 0.995), na.rm = T)
+
+# Set up plot with appropriate axis labels and title
+plot(qcement_ts$value, type = "l", xlim = c(0, 250), ylim = c(0.5, 3.5),
+     xlab = "Time", ylab = "Cement Production", main = "Simulated Forecast Scenarios")
+
+# Add a legend to the plot
+legend("topleft", legend = c("Actual", "Simulated Scenarios", "80% interval","90% interval","95% interval","99% interval"), lty = c(1, 1), 
+       col = c("black", "blue", "red","green","yellow","orange"), bty = "n", cex = 0.8)
+
+# Add simulated scenarios to the plot using lines
+for (j in c(1:500)) {
+  lines(y[, j] ~ c(234:243), col = "blue", lwd = 0.5)
+}
+lines(pi_80[1,] ~ c(234:243), type='l', lwd=2, col="red")
+lines(pi_80[2,] ~ c(234:243), type='l', lwd=2, col="red")
+lines(pi_90[1,]~ c(234:243), type='l', lwd=2, col="green")
+lines(pi_90[2,]~ c(234:243), type='l', lwd=2, col="green")
+lines(pi_95[1,]~ c(234:243), type='l', lwd=2, col="yellow")
+lines(pi_95[2,]~ c(234:243), type='l', lwd=2, col="yellow")
+lines(pi_99[1,]~ c(234:243), type='l', lwd=2, col="orange")
+lines(pi_99[2,]~ c(234:243), type='l', lwd=2, col="orange")
+
+
+```
+
+As the level increases, the width of the intervals also increases. Furthermore, the amount of uncertainty grows larger as we move further into the future. Consequently, the intervals become wider towards the end of the forecast period.
+
+```{r}
+
+# Extract lower and upper bounds from hilo function
+lower_hilo_80 <- hilo(holt_w_fc, level = 80)$`80%`$lower
+upper_hilo_80 <- hilo(holt_w_fc, level = 80)$`80%`$upper
+
+# Extract lower and upper bounds from apply function
+pi_80 <- apply(y, 1, quantile, probs=c(0.1, 0.9), na.rm = T)
+lower_apply_80 <- pi_80[1,]
+upper_apply_80 <- pi_80[2,]
+
+# Create a data frame with the interval bounds
+intervals_80 <- data.frame(x = c(1:length(lower_hilo_80)), 
+                        lower_hilo = lower_hilo_80,
+                        upper_hilo = upper_hilo_80,
+                        lower_apply = lower_apply_80,
+                        upper_apply = upper_apply_80)
+
+
+# Create a plot
+ggplot(intervals_80, aes(x = x)) +
+  geom_ribbon(aes(ymin = lower_hilo, ymax = upper_hilo, fill = "Parametric"), alpha = 0.3) +
+  geom_ribbon(aes(ymin = lower_apply, ymax = upper_apply, fill = "Bootstrap"), alpha = 0.3) +
+  scale_x_continuous(name = "Time", breaks = seq(0, 10, by = 1)) +
+  scale_y_continuous(name = "Cement Production") +
+  theme_bw() +
+  labs(fill = "Method", title = "Comparison of Prediction Intervals", subtitle = "80%", caption = NULL)
+
+
+```
+
+```{r}
+
+# Extract lower and upper bounds from hilo function
+lower_hilo_90 <- hilo(holt_w_fc, level = 90)$`90%`$lower
+upper_hilo_90 <- hilo(holt_w_fc, level = 90)$`90%`$upper
+
+# Extract lower and upper bounds from apply function
+pi_90 <- apply(y, 1, quantile, probs=c(0.05, 0.95), na.rm = T)
+lower_apply_90 <- pi_90[1,]
+upper_apply_90 <- pi_90[2,]
+
+# Create a data frame with the interval bounds
+intervals_90 <- data.frame(x = c(1:length(lower_hilo_90)), 
+                        lower_hilo = lower_hilo_90,
+                        upper_hilo = upper_hilo_90,
+                        lower_apply = lower_apply_90,
+                        upper_apply = upper_apply_90)
+
+# Create a plot
+ggplot(intervals_90, aes(x = x)) +
+  geom_ribbon(aes(ymin = lower_hilo, ymax = upper_hilo, fill = "Parametric"), alpha = 0.3) +
+  geom_ribbon(aes(ymin = lower_apply, ymax = upper_apply, fill = "Bootstrap"), alpha = 0.3) +
+  scale_x_continuous(name = "Time", breaks = seq(0, 10, by = 1)) +
+  scale_y_continuous(name = "Cement Production") +
+  theme_bw() +
+  labs(fill = "Method", title = "Comparison of Prediction Intervals", subtitle = "90%", caption = NULL)
+
+
+
+```
+
+```{r}
+
+
+# Extract lower and upper bounds from hilo function
+lower_hilo_95 <- hilo(holt_w_fc, level = 95)$`95%`$lower
+upper_hilo_95 <- hilo(holt_w_fc, level = 95)$`95%`$upper
+
+# Extract lower and upper bounds from apply function
+pi_95 <- apply(y, 1, quantile, probs=c(0.025, 0.975), na.rm = T)
+lower_apply_95 <- pi_95[1,]
+upper_apply_95 <- pi_95[2,]
+
+# Create a data frame with the interval bounds
+intervals_95 <- data.frame(x = c(1:length(lower_hilo_95)), 
+                        lower_hilo = lower_hilo_95,
+                        upper_hilo = upper_hilo_95,
+                        lower_apply = lower_apply_95,
+                        upper_apply = upper_apply_95)
+
+# Create a plot
+ggplot(intervals_95, aes(x = x)) +
+  geom_ribbon(aes(ymin = lower_hilo, ymax = upper_hilo, fill = "Parametric"), alpha = 0.3) +
+  geom_ribbon(aes(ymin = lower_apply, ymax = upper_apply, fill = "Bootstrap"), alpha = 0.3) +
+  scale_x_continuous(name = "Time", breaks = seq(0, 10, by = 1)) +
+  scale_y_continuous(name = "Cement Production") +
+  theme_bw() +
+  labs(fill = "Method", title = "Comparison of Prediction Intervals", subtitle = "95%", caption = NULL)
+
+```
+
+```{r}
+
+
+# Extract lower and upper bounds from hilo function
+lower_hilo_99 <- hilo(holt_w_fc, level = 99)$`99%`$lower
+upper_hilo_99 <- hilo(holt_w_fc, level = 99)$`99%`$upper
+
+# Extract lower and upper bounds from apply function
+pi_99 <- apply(y, 1, quantile, probs=c(0.005, 0.995), na.rm = T)
+lower_apply_99 <- pi_99[1,]
+upper_apply_99<- pi_99[2,]
+
+# Create a data frame with the interval bounds
+intervals_99 <- data.frame(x = c(1:length(lower_hilo_99)), 
+                        lower_hilo = lower_hilo_99,
+                        upper_hilo = upper_hilo_99,
+                        lower_apply = lower_apply_99,
+                        upper_apply = upper_apply_99)
+
+
+# Create a plot
+ggplot(intervals_99, aes(x = x)) +
+  geom_ribbon(aes(ymin = lower_hilo, ymax = upper_hilo, fill = "Parametric"), alpha = 0.3) +
+  geom_ribbon(aes(ymin = lower_apply, ymax = upper_apply, fill = "Bootstrap"), alpha = 0.3) +
+  scale_x_continuous(name = "Time", breaks = seq(0, 10, by = 1)) +
+  scale_y_continuous(name = "Cement Production") +
+  theme_bw() +
+  labs(fill = "Method", title = "Comparison of Prediction Intervals", subtitle = "99%", caption = NULL)
+
+```
